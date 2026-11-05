@@ -1,0 +1,17 @@
+services:
+  mi-gpt-hermes:
+    image: ${MIGPT_IMAGE:?请设置 GitHub Actions 构建的镜像地址}
+    container_name: mi-gpt-hermes
+    restart: unless-stopped
+    # 复用现有 hermes 的网络空间，访问其 127.0.0.1:8642。
+    network_mode: container:hermes
+    env_file: .env
+    volumes:
+      - ./data:/data
+    environment:
+      TZ: Asia/Shanghai
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'

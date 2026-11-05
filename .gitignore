@@ -7,3 +7,8 @@ dist
 .mi.json
 .migpt.js
 *.db*
+.env.*
+!.env.example
+!.env.hermes.example
+data/
+dist-hermes/
