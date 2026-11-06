@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTriggers, matchesTrigger } from './triggers.mjs';
+import { parseTriggers, matchesTrigger, stripTrigger } from './triggers.mjs';
 
 test('only configured prefixes match, including English case variants', () => {
   const words = parseTriggers('询问助手,askHermes');
@@ -22,4 +22,20 @@ test('environment supports custom prefixes, Chinese commas and rejects an empty 
   assert.equal(matchesTrigger('找助手帮个忙', parseTriggers('找助手')), true);
   assert.equal(matchesTrigger('问问hermes你好', parseTriggers('找助手')), false);
   assert.throws(() => parseTriggers(' ,， '), /MI_AI_KEYWORDS/);
+});
+
+test('strip only the leading trigger and separator, preserving question content', () => {
+  const words = parseTriggers('问问AI,告诉助手');
+  assert.equal(stripTrigger('问问AI里面有几张我的照片', words), '里面有几张我的照片');
+  assert.equal(stripTrigger('  问问ai， ：里面有几张我的照片？', words), '里面有几张我的照片？');
+  assert.equal(stripTrigger('告诉助手：请记住“问问AI”是触发词', words), '请记住“问问AI”是触发词');
+  assert.equal(stripTrigger('问问AI -5 加 3 是多少？', words), '-5 加 3 是多少？');
+  assert.equal(stripTrigger('我想问问AI这件事', words), '我想问问AI这件事');
+});
+
+test('strip longest prefix once and detect an empty question', () => {
+  const words = parseTriggers('问问,问问AI');
+  assert.equal(stripTrigger('问问AI，解释一下', words), '解释一下');
+  assert.equal(stripTrigger('问问AI，问问AI是什么意思', words), '问问AI是什么意思');
+  assert.equal(stripTrigger('问问AI， ！', words), '');
 });

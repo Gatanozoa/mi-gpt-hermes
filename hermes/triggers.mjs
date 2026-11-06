@@ -6,6 +6,19 @@ export function parseTriggers(value) {
 }
 
 export function matchesTrigger(text, words) {
+  return findTrigger(text, words) !== undefined;
+}
+
+function findTrigger(text, words) {
   const input = text.trimStart().toLowerCase();
-  return words.some(word => input.startsWith(word.toLowerCase()));
+  // Prefer the most specific prefix when configured prefixes overlap.
+  return [...words].sort((a, b) => b.length - a.length)
+    .find(word => input.startsWith(word.toLowerCase()));
+}
+
+export function stripTrigger(text, words) {
+  const input = text.trimStart();
+  const prefix = findTrigger(input, words);
+  if (prefix === undefined) return text;
+  return input.slice(prefix.length).replace(/^[\s,，:：;；。.!！?？、]+/u, '').trim();
 }

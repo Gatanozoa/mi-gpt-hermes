@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import { HermesClient } from './client.mjs';
-import { parseTriggers, matchesTrigger } from './triggers.mjs';
+import { parseTriggers, matchesTrigger, stripTrigger } from './triggers.mjs';
 
 const env = process.env;
 const dataDir = resolve(env.DATA_DIR || '/data');
@@ -39,7 +39,11 @@ async function main() {
     wakeUpKeywords: [], exitKeywords: [], switchSpeakerKeywords: [],
     onAIAsking: ['请稍等'], onAIReplied: [],
     askAI: async (message) => {
-      try { return { text: await client.ask(message) }; }
+      const text = stripTrigger(message.text, keywords);
+      if (!text) return { text: '请在触发词后说出你的问题。' };
+      // Leave the original speaker event intact for upstream interruption checks.
+      // Hermes receives only the question; timestamps still identify the device event.
+      try { return { text: await client.ask({ ...message, text }) }; }
       catch (error) {
         // Do not log API responses, prompts, keys or Xiaomi credentials.
         console.error('Hermes 请求未完成：', error.code || 'UNKNOWN');
