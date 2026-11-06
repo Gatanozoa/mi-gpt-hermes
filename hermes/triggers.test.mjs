@@ -1,13 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_TRIGGERS, parseTriggers, matchesTrigger } from './triggers.mjs';
+import { parseTriggers, matchesTrigger } from './triggers.mjs';
 
-test('only requested prefixes match by default, including English case variants', () => {
-  const words = parseTriggers();
-  for (const prefix of DEFAULT_TRIGGERS) assert.equal(matchesTrigger(prefix + '今天的安排', words), true);
-  assert.equal(matchesTrigger(' 问问Hermes今天的安排', words), true);
+test('only configured prefixes match, including English case variants', () => {
+  const words = parseTriggers('询问助手,askHermes');
+  for (const prefix of words) assert.equal(matchesTrigger(prefix + '今天的安排', words), true);
+  assert.equal(matchesTrigger(' AskHermes今天的安排', words), true);
   for (const text of ['请开灯', '你好', '问问天气', '赫尔墨斯你好', '告诉小爱你好', '我想问问爱马仕']) {
     assert.equal(matchesTrigger(text, words), false, text);
+  }
+});
+
+test('missing or empty environment has no fallback prefixes', () => {
+  for (const value of [undefined, null, '', '  ', ',，']) {
+    assert.throws(() => parseTriggers(value), /MI_AI_KEYWORDS is required/);
   }
 });
 

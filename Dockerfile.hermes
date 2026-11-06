@@ -15,6 +15,6 @@ ENV NODE_ENV=production DATA_DIR=/data
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist-hermes ./dist-hermes
 COPY package.json ./
-COPY hermes ./hermes
+COPY hermes/app.mjs hermes/client.mjs hermes/triggers.mjs ./hermes/
 VOLUME /data
 CMD ["node", "/app/hermes/app.mjs"]

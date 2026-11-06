@@ -49,7 +49,23 @@ docker compose -f compose.hermes.yaml up -d --force-recreate
 
 ## 小爱音箱 Play
 
-默认关闭流式响应与连续对话，每轮重新唤醒。例如“小爱同学，问问爱马仕，今天有什么安排”。默认只有以“问问hermes / 问问爱马仕 / 问问赫尔墨斯 / 告诉爱马仕 / 告诉赫尔墨斯”开头的问题交给 Hermes，英文不区分大小写。原生小爱仍处理其他命令。没有后台管理页面；在 `.env` 中设置 `MI_AI_KEYWORDS`，用逗号分隔前缀。修改后执行 `docker compose -f compose.hermes.yaml up -d --force-recreate` 生效（仅 restart 不会重新加载 env_file）。旧镜像不支持此设置，需要先更新镜像。
+默认关闭流式响应与连续对话，每轮重新唤醒。没有后台管理页面；触发前缀完全由 `.env` 中必填的 `MI_AI_KEYWORDS` 决定，镜像没有内置默认列表。未设置、留空或只填分隔符时，程序会明确报错并拒绝启动，不会退回“请”“你”等宽泛前缀。
+
+例如，在 `.env` 中配置（以下五项只是示例，可自行替换）：
+
+```dotenv
+MI_AI_KEYWORDS=问问hermes,问问爱马仕,问问赫尔墨斯,告诉爱马仕,告诉赫尔墨斯
+```
+
+使用英文或中文逗号分隔，英文不区分大小写，重复项和两端空格会被清理。只匹配提问开头；按上述示例，可说“小爱同学，问问爱马仕，今天有什么安排”。其他提问不转交 Hermes。
+
+修改 `.env` 后重新创建容器：
+
+```sh
+docker compose -f compose.hermes.yaml up -d --force-recreate
+```
+
+仅 `restart` 不会重新加载 `env_file`。从旧版升级时，先在 `.env` 填好 `MI_AI_KEYWORDS`，再拉取新版镜像并重新创建容器。登录缓存及音箱会话仍使用原来的 `data` 目录。
 
 `MI_HARDWARE=L05B` 使用 TTS `[5,3]`、唤醒 `[5,1]`；2019 款 `LX05` 则使用 `[5,1]`、`[5,3]`。连续对话均关闭，但命令映射仍必须与实际硬件相符。型号未知时默认先用 L05B，能否播报需实测；如未播报，请核对机身标签。兼容性依据[上游列表](https://github.com/idootop/mi-gpt/blob/main/docs/compatibility.md)。
 

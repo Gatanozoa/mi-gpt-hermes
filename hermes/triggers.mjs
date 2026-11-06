@@ -1,9 +1,7 @@
-export const DEFAULT_TRIGGERS = ['问问hermes', '问问爱马仕', '问问赫尔墨斯', '告诉爱马仕', '告诉赫尔墨斯'];
-
 export function parseTriggers(value) {
-  if (value === undefined) return [...DEFAULT_TRIGGERS];
+  if (typeof value !== 'string') throw new Error('MI_AI_KEYWORDS is required; configure prefixes in .env');
   const words = [...new Set(value.split(/[,，]/).map(word => word.trim()).filter(Boolean))];
-  if (!words.length) throw new Error('MI_AI_KEYWORDS requires at least one prefix');
+  if (!words.length) throw new Error('MI_AI_KEYWORDS is required; configure at least one prefix in .env');
   return words;
 }
 
