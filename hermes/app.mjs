@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import { HermesClient } from './client.mjs';
+import { parseTriggers, matchesTrigger } from './triggers.mjs';
 
 const env = process.env;
 const dataDir = resolve(env.DATA_DIR || '/data');
@@ -19,6 +20,7 @@ async function main() {
   for (const key of ['MI_USER', 'MI_PASS', 'MI_DID']) if (!env[key]?.trim()) throw new Error(`${key} is required`);
   const hardware = env.MI_HARDWARE || 'L05B';
   if (!['L05B', 'LX05'].includes(hardware)) throw new Error('MI_HARDWARE must be L05B or LX05');
+  const keywords = parseTriggers(env.MI_AI_KEYWORDS);
   await client.init();
   await mkdir(dataDir, { recursive: true });
   // mi-service stores its Xiaomi login cache relative to the working directory.
@@ -29,7 +31,11 @@ async function main() {
     name: '赫尔墨斯', streamResponse: false, debug: false, enableTrace: false,
     ttsCommand: hardware === 'LX05' ? [5, 1] : [5, 3],
     wakeUpCommand: hardware === 'LX05' ? [5, 3] : [5, 1],
-    callAIKeywords: ['请', '你', '问问', '赫尔墨斯'],
+    callAIKeywords: [],
+    commands: [{
+      match: message => matchesTrigger(message.text, keywords),
+      run: message => speaker.askAIForAnswer(message),
+    }],
     wakeUpKeywords: [], exitKeywords: [], switchSpeakerKeywords: [],
     onAIAsking: ['请稍等'], onAIReplied: [],
     askAI: async (message) => {
@@ -45,6 +51,7 @@ async function main() {
   });
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { speaker.stop(); process.exit(0); });
   console.log(`MiGPT Hermes 已启动，音箱配置 ${hardware}，连续对话关闭。`);
+  console.log('Hermes 触发前缀：', keywords.join('、'));
   await speaker.run();
 }
 main().catch(error => {

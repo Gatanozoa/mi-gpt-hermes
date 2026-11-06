@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test hermes/client.test.mjs
+      - run: node --test hermes/client.test.mjs hermes/triggers.test.mjs
   publish:
     needs: test
     runs-on: ubuntu-latest

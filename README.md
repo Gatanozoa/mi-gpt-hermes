@@ -49,7 +49,7 @@ docker compose -f compose.hermes.yaml up -d --force-recreate
 
 ## 小爱音箱 Play
 
-默认关闭流式响应与连续对话，每轮重新唤醒。例如“小爱同学，请问今天有什么安排”。只有以“请 / 你 / 问问 / 赫尔墨斯”开头的问题交给 Hermes，原生小爱仍处理其他命令。
+默认关闭流式响应与连续对话，每轮重新唤醒。例如“小爱同学，问问爱马仕，今天有什么安排”。默认只有以“问问hermes / 问问爱马仕 / 问问赫尔墨斯 / 告诉爱马仕 / 告诉赫尔墨斯”开头的问题交给 Hermes，英文不区分大小写。原生小爱仍处理其他命令。没有后台管理页面；在 `.env` 中设置 `MI_AI_KEYWORDS`，用逗号分隔前缀。修改后执行 `docker compose -f compose.hermes.yaml up -d --force-recreate` 生效（仅 restart 不会重新加载 env_file）。旧镜像不支持此设置，需要先更新镜像。
 
 `MI_HARDWARE=L05B` 使用 TTS `[5,3]`、唤醒 `[5,1]`；2019 款 `LX05` 则使用 `[5,1]`、`[5,3]`。连续对话均关闭，但命令映射仍必须与实际硬件相符。型号未知时默认先用 L05B，能否播报需实测；如未播报，请核对机身标签。兼容性依据[上游列表](https://github.com/idootop/mi-gpt/blob/main/docs/compatibility.md)。
 
@@ -69,7 +69,7 @@ docker compose -f compose.hermes.yaml up -d --force-recreate
 ## 开发与发布
 
 ```sh
-node --test hermes/client.test.mjs
+node --test hermes/client.test.mjs hermes/triggers.test.mjs
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm exec tsup --config tsup.hermes.config.ts
 docker build -f Dockerfile.hermes -t mi-gpt-hermes:test .
