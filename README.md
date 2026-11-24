@@ -1,73 +1,43 @@
 # MiGPT → Hermes
 
-让小爱音箱成为现有 Hermes Agent 的语音入口。基于 [idootop/mi-gpt](https://github.com/idootop/mi-gpt)，保留小米登录、提问获取、TTS 播报；绕过原版 MyBot、人设提示和 Prisma 记忆管理，由 Hermes 负责模型、工具、会话与记忆。
+将小爱音箱接入 Hermes Agent。桥接容器通过 [mi-gpt](https://github.com/idootop/mi-gpt) 获取音箱提问，将匹配触发词的问题转发给 Hermes，再由音箱朗读最终回答。模型、工具和会话历史由 Hermes 管理。
 
-```text
-小爱音箱 ⇄ mi-gpt-hermes 容器 ⇄ 现有 Hermes 容器
-                                  ↑
-                                微信等入口
-```
+音箱拥有独立的持久会话。要与微信等其他入口共享长期记忆，应让各入口连接同一 Hermes profile，并选择支持该共享范围的记忆配置。例如，holographic 的 `scope: profile` 按 profile 共享，`user/chat/thread` 按身份或通道隔离。
 
-音箱使用自己的持久会话，不接管微信会话。同一 Hermes profile 下，可使用同一份长期记忆。共享效果取决于 Hermes 的记忆 provider、范围、工具权限及实际保存情况；不是所有聊天内容实时同步。holographic 的 `scope: profile` 适合此用途，`user/chat/thread` 会按身份或通道隔离。
+## 使用 Docker Compose 部署
 
-## 镜像和验证状态
+镜像 `ghcr.io/gatanozoa/mi-gpt-hermes:latest` 支持 `linux/amd64` 和 `linux/arm64`。启动桥接前，请先启动 Hermes Agent 容器，启用其 API 服务并设置 `API_SERVER_KEY`。示例使用容器内的 `http://127.0.0.1:8642/v1`。
 
-GitHub Actions 在推送 `main` 后测试并构建 `linux/amd64`、`linux/arm64` 镜像：
+1. 下载 [compose.hermes.yaml](compose.hermes.yaml) 和 [.env.hermes.example](.env.hermes.example)，放在同一目录。运行 `cp .env.hermes.example .env`。
+2. 在 `.env` 中填写小米 ID（`MI_USER`）、密码（`MI_PASS`）、设备名称或 did（`MI_DID`）。按实际型号设置 `MI_HARDWARE`，并用 `MI_AI_KEYWORDS` 指定触发词。
+3. 将 Hermes 服务的 `API_SERVER_KEY` 填入桥接的 `HERMES_API_KEY`。Compose 通过 `network_mode: container:hermes` 共享 Hermes 的网络空间。如果 Hermes 容器使用其他名称，请将 `container:` 后的名称改为实际容器名。
 
-```text
-ghcr.io/gatanozoa/mi-gpt-hermes:latest
-```
-
-同时发布按提交 SHA 标记的镜像，便于固定版本。NAS 不需要安装 Node.js 或构建镜像。GHCR 第一次发布可能默认私有：仓库拥有者需在 GitHub Packages 设置中把此容器包设为 Public；公开仓库并不保证包自动公开。
-
-已完成桥接自动测试、音箱模块编译和运行时导入验证。尚未进行真实小米账号、音箱播报及微信↔音箱记忆互通验收。不应把单元测试当成实机兼容性保证。
-
-## NAS 部署
-
-要求：现有 Hermes 已运行，容器名为 `hermes`；其 API 在容器内 `127.0.0.1:8642` 可访问。Hermes v0.22.5 可使用该接口。无需 Dashboard。
-
-1. 下载本仓库的 `compose.hermes.yaml` 和 `.env.hermes.example` 到一个新目录，例如 `/volume1/docker/mi-gpt-hermes`。将后者重命名为 `.env`。
-2. 填写 `.env` 中的小米 ID、密码、设备名称或 did，以及 **现有 Hermes 的 `API_SERVER_KEY`**。不要填写模型供应商的 Key，也不要把 `.env` 上传 GitHub。
-3. 确认镜像地址为 `ghcr.io/gatanozoa/mi-gpt-hermes:latest`。如果现有 Hermes 容器名不是 `hermes`，修改 Compose 中的 `network_mode: container:hermes`。
-4. 在此目录运行：
+在 Compose 所在目录运行以下命令。第二条命令检查 Hermes API 连接，不调用模型。
 
 ```sh
 docker compose -f compose.hermes.yaml pull
-# 只读检查 Hermes API，不连接小米、不创建对话、不调用模型。
 docker compose -f compose.hermes.yaml run --rm mi-gpt-hermes node /app/hermes/app.mjs --check
 docker compose -f compose.hermes.yaml up -d
 docker compose -f compose.hermes.yaml logs --tail 50
 ```
 
-桥接共用现有 Hermes 的网络空间，因而可访问其回环接口，不用修改 Hermes 的绑定地址或向外开放新端口。桥接不挂载 Hermes 数据目录，通过 API 使用现有 Agent。现有 Hermes 必须先启动；若重建了 Hermes 容器，随后也应重新创建桥接容器以加入新的网络空间：
+`./data` 保存小米登录缓存和音箱的 `hermes-session.json`。每个桥接实例应使用独立的数据目录。切换 Hermes 后端前，先备份并移走该会话文件，再启动桥接。
+
+修改 `.env` 或重建 Hermes 容器后，运行以下命令，让桥接加载配置并加入当前 Hermes 容器的网络空间。
 
 ```sh
 docker compose -f compose.hermes.yaml up -d --force-recreate
 ```
 
-`./data` 保存小米登录缓存和 `hermes-session.json`，请保留并保护此目录。同一份 data 只运行一个桥接实例。会话 ID 重启后保持不变；如果改换 Hermes 后端，先备份并移走此会话文件，再启动。删除本地会话文件不等于删除 Hermes 中的历史或结束旧会话。
+## 音箱与触发词
 
-## 小爱音箱 Play
-
-默认关闭流式响应与连续对话，每轮重新唤醒。没有后台管理页面；触发前缀完全由 `.env` 中必填的 `MI_AI_KEYWORDS` 决定，镜像没有内置默认列表。未设置、留空或只填分隔符时，程序会明确报错并拒绝启动，不会退回“请”“你”等宽泛前缀。
-
-例如，在 `.env` 中配置（以下五项只是示例，可自行替换）：
+每轮提问前先唤醒音箱，在问题开头说一个触发词。用英文或中文逗号分隔多个词，例如：
 
 ```dotenv
-MI_AI_KEYWORDS=问问hermes,问问爱马仕,问问赫尔墨斯,告诉爱马仕,告诉赫尔墨斯
+MI_AI_KEYWORDS=问问hermes,问问爱马仕
 ```
 
-使用英文或中文逗号分隔，英文不区分大小写，重复项和两端空格会被清理。只匹配提问开头；按上述示例，可说“小爱同学，问问爱马仕，今天有什么安排”。其他提问不转交 Hermes。
-
-转发时会去掉句首匹配到的触发词及其后紧邻的空格、逗号、冒号等分隔符。例如配置“问问AI”后，说“问问AI，里面有几张我的照片”，Hermes 会话只收到“里面有几张我的照片”。只移除句首的一次匹配，正文中再次出现的相同词语会保留；多个前缀重叠时优先匹配最长项。只说触发词、没有问题正文时，会提示补充问题，不向 Hermes 提交空消息。Speaker 日志仍可能显示音箱识别的完整原句；已有历史不会被重写。
-
-修改 `.env` 后重新创建容器：
-
-```sh
-docker compose -f compose.hermes.yaml up -d --force-recreate
-```
-
-仅 `restart` 不会重新加载 `env_file`。从旧版升级时，先在 `.env` 填好 `MI_AI_KEYWORDS`，再拉取新版镜像并重新创建容器。登录缓存及音箱会话仍使用原来的 `data` 目录。
+说“小爱同学，问问爱马仕，今天有什么安排”，Hermes 收到的问题是“今天有什么安排”。匹配时忽略英文大小写，多个前缀重叠时优先使用最长项。只说触发词时，音箱会提示补充问题。`MI_AI_KEYWORDS` 必须包含至少一个触发词。
 
 `MI_HARDWARE=L05B` 使用 TTS `[5,3]`、唤醒 `[5,1]`；2019 款 `LX05` 则使用 `[5,1]`、`[5,3]`。连续对话均关闭，但命令映射仍必须与实际硬件相符。型号未知时默认先用 L05B，能否播报需实测；如未播报，请核对机身标签。兼容性依据[上游列表](https://github.com/idootop/mi-gpt/blob/main/docs/compatibility.md)。
 
@@ -84,7 +54,9 @@ docker compose -f compose.hermes.yaml up -d --force-recreate
 - 若 Hermes 使用命名 profile，在 `HERMES_BASE_URL` 设置该 profile 的 API 路径并使用对应 Key；默认地址连接默认 profile。
 - 调用 Hermes 的 API Key 赋予 Agent 能力，请仅放在自己的受信任设备中。日志不打印 API 响应正文或凭据；上游仍会记录音箱识别的提问。
 
-## 开发与发布
+自动测试覆盖桥接逻辑。小米登录、实际播报和跨入口记忆共享需在对应设备与 Hermes 配置上验证。
+
+## 开发
 
 ```sh
 node --test hermes/client.test.mjs hermes/triggers.test.mjs
@@ -93,10 +65,8 @@ pnpm exec tsup --config tsup.hermes.config.ts
 docker build -f Dockerfile.hermes -t mi-gpt-hermes:test .
 ```
 
-上游仍保留原入口，Hermes 镜像只启动 `hermes/app.mjs`。构建跳过原版安装脚本，运行时不初始化 Prisma 数据库。入口为 `src/hermes-speaker.ts`，桥接协议实现位于 `hermes/client.mjs`。
-
-发布无需额外仓库 Secret，Actions 使用 `GITHUB_TOKEN` 发布 GHCR。推送 `main` 或手动运行 **Hermes image** 工作流即可构建镜像。
+镜像从 `hermes/app.mjs` 启动。音箱入口位于 `src/hermes-speaker.ts`，Hermes API 客户端位于 `hermes/client.mjs`。
 
 ## 版权
 
-保留上游 MIT 许可证及作者信息。原项目说明见 [README.upstream.md](README.upstream.md)。本分支不包含任何真实小米账号、Hermes Key、聊天记录或 NAS 配置。
+本项目基于 mi-gpt，遵循上游 MIT 许可证。见[上游项目说明](README.upstream.md)。

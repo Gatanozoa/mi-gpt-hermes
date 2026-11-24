@@ -3,7 +3,7 @@ services:
     image: ${MIGPT_IMAGE:?请设置 GitHub Actions 构建的镜像地址}
     container_name: mi-gpt-hermes
     restart: unless-stopped
-    # 复用现有 hermes 的网络空间，访问其 127.0.0.1:8642。
+    # 通过 Hermes 容器的网络空间访问其回环接口；容器名需与部署环境一致。
     network_mode: container:hermes
     env_file: .env
     volumes:
