@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTriggers, matchesTrigger, stripTrigger } from './triggers.mjs';
+import { parseTriggers, voiceCommands } from './triggers.mjs';
+
+function dispatch(text, words) {
+  const message = { text, timestamp: 123 };
+  const command = voiceCommands(words, question => {
+    assert.equal(question.timestamp, message.timestamp);
+    return question.text;
+  }).find(command => command.match(message));
+  return command?.run(message);
+}
+const matchesTrigger = (text, words) => dispatch(text, words) !== undefined;
 
 test('only configured prefixes match, including English case variants', () => {
   const words = parseTriggers('询问助手,askHermes');
@@ -26,16 +36,16 @@ test('environment supports custom prefixes, Chinese commas and rejects an empty 
 
 test('strip only the leading trigger and separator, preserving question content', () => {
   const words = parseTriggers('问问AI,告诉助手');
-  assert.equal(stripTrigger('问问AI里面有几张我的照片', words), '里面有几张我的照片');
-  assert.equal(stripTrigger('  问问ai， ：里面有几张我的照片？', words), '里面有几张我的照片？');
-  assert.equal(stripTrigger('告诉助手：请记住“问问AI”是触发词', words), '请记住“问问AI”是触发词');
-  assert.equal(stripTrigger('问问AI -5 加 3 是多少？', words), '-5 加 3 是多少？');
-  assert.equal(stripTrigger('我想问问AI这件事', words), '我想问问AI这件事');
+  assert.equal(dispatch('问问AI里面有几张我的照片', words), '里面有几张我的照片');
+  assert.equal(dispatch('  问问ai， ：里面有几张我的照片？', words), '里面有几张我的照片？');
+  assert.equal(dispatch('告诉助手：请记住“问问AI”是触发词', words), '请记住“问问AI”是触发词');
+  assert.equal(dispatch('问问AI -5 加 3 是多少？', words), '-5 加 3 是多少？');
+  assert.equal(dispatch('我想问问AI这件事', words), undefined);
 });
 
 test('strip longest prefix once and detect an empty question', () => {
   const words = parseTriggers('问问,问问AI');
-  assert.equal(stripTrigger('问问AI，解释一下', words), '解释一下');
-  assert.equal(stripTrigger('问问AI，问问AI是什么意思', words), '问问AI是什么意思');
-  assert.equal(stripTrigger('问问AI， ！', words), '');
+  assert.equal(dispatch('问问AI，解释一下', words), '解释一下');
+  assert.equal(dispatch('问问AI，问问AI是什么意思', words), '问问AI是什么意思');
+  assert.equal(dispatch('问问AI， ！', words), '');
 });

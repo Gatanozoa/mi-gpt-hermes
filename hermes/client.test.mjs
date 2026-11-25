@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HermesClient } from './client.mjs';
@@ -56,11 +56,40 @@ test('foreign session conflict is surfaced without retries', async t => {
   const { client } = await fixture(t, async () => { count++; return new Response('private diagnostic', { status: 409 }); });
   await assert.rejects(client.ask({ text: 'hello', timestamp: 1 }), { code: 'HTTP_409' }); assert.equal(count, 1);
 });
-test('backend change and corrupt saved state fail closed', async t => {
-  const { options, dataDir } = await fixture(t, async () => answer('ok'));
-  await assert.rejects(new HermesClient({ ...options, baseUrl: 'http://other/v1' }).init(), /endpoint changed/);
-  await writeFile(join(dataDir, 'hermes-session.json'), 'broken');
-  await assert.rejects(new HermesClient(options).init());
+test('changing the URL preserves the session and persists the new address', async t => {
+  const { client, options, dataDir } = await fixture(t);
+  const moved = new HermesClient({ ...options, baseUrl: 'http://hermes:8642/v1' });
+  await moved.init();
+  assert.equal(moved.sessionId, client.sessionId);
+  assert.deepEqual(JSON.parse(await readFile(join(dataDir, 'hermes-session.json'), 'utf8')),
+    { sessionId: client.sessionId, baseUrl: moved.baseUrl });
+});
+test('corrupt state is archived once and the replacement survives restart', async t => {
+  for (const broken of ['broken', 'null', JSON.stringify({ sessionId: '-'.repeat(36) })]) {
+    const { client, options, dataDir } = await fixture(t);
+    await writeFile(join(dataDir, 'hermes-session.json'), broken);
+    const repaired = new HermesClient(options);
+    await repaired.init();
+    assert.notEqual(repaired.sessionId, client.sessionId);
+    const restarted = new HermesClient(options);
+    await restarted.init();
+    assert.equal(restarted.sessionId, repaired.sessionId);
+    const backups = (await readdir(dataDir)).filter(file => file.includes('.corrupt-'));
+    assert.equal(backups.length, 1);
+    assert.equal(await readFile(join(dataDir, backups[0]), 'utf8'), broken);
+  }
+});
+test('only known pre-connect failures report that delivery did not occur', async t => {
+  for (const [cause, code] of [
+    [{ code: 'ECONNREFUSED' }, 'CONNECTION_FAILED'], [{ code: 'ENOTFOUND' }, 'CONNECTION_FAILED'],
+    [new AggregateError([{ code: 'ECONNREFUSED' }, { code: 'ENETUNREACH' }]), 'CONNECTION_FAILED'],
+    [{ code: 'ECONNRESET' }, 'DELIVERY_UNCERTAIN'], [{ code: 'ETIMEDOUT' }, 'DELIVERY_UNCERTAIN'],
+  ]) {
+    let calls = 0;
+    const { client } = await fixture(t, async () => { calls++; throw new TypeError('fetch failed', { cause }); });
+    await assert.rejects(client.ask({ text: 'hello', timestamp: 1 }), { code });
+    assert.equal(calls, 1);
+  }
 });
 test('failed/cancelled/empty responses cannot become successful spoken replies', async t => {
   for (const response of [

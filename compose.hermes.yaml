@@ -3,6 +3,7 @@ services:
     image: ${MIGPT_IMAGE:-ghcr.io/gatanozoa/mi-gpt-hermes:latest}
     container_name: mi-gpt-hermes
     restart: unless-stopped
+    stop_grace_period: 4m
     networks:
       - hermes-voice
     env_file: .env

@@ -70,6 +70,15 @@ export class Speaker extends BaseSpeaker {
     this.status = "stopped";
   }
 
+  private draining = false;
+  private activeMessages = new Set<Promise<void>>();
+
+  async drain() {
+    this.draining = true;
+    await Promise.allSettled(this.activeMessages);
+    this.stop();
+  }
+
   async run() {
     await this.initMiServices();
     if (!this.MiNA) {
@@ -78,8 +87,9 @@ export class Speaker extends BaseSpeaker {
     this.logger.success("服务已启动...");
     this.activeKeepAliveMode();
     const retry = fastRetry(this, "消息列表");
-    while (this.status === "running") {
+    while (this.status === "running" && !this.draining) {
       const nextMsg = await this.fetchNextMessage();
+      if (this.draining) break;
       const isOk = retry.onResponse(this._lastConversation);
       if (isOk === "break") {
         process.exit(1); // 退出应用
@@ -88,7 +98,9 @@ export class Speaker extends BaseSpeaker {
         this.responding = false;
         this.logger.log("🔥 " + nextMsg.text);
         // 异步处理消息，不阻塞正常消息拉取
-        this.onMessage(nextMsg);
+        const task = this.onMessage(nextMsg);
+        this.activeMessages.add(task);
+        void task.finally(() => this.activeMessages.delete(task));
       }
       await sleep(this.heartbeat);
     }
@@ -221,6 +233,7 @@ export class Speaker extends BaseSpeaker {
   private async _fetchNext2Messages() {
     // 拉取最新的 2 条 msg（用于和上一条消息比对是否连续）
     let msgs = await this.getMessages({ limit: 2 });
+    if (this.draining) return;
     if (
       msgs.length < 1 ||
       firstOf(msgs)!.timestamp <= this.currentQueryMsg!.timestamp
@@ -266,6 +279,7 @@ export class Speaker extends BaseSpeaker {
         limit: 10,
         timestamp: nextTimestamp,
       });
+      if (this.draining) return;
       for (const msg of msgs) {
         if (msg.timestamp >= nextTimestamp) {
           // 忽略上一页的消息

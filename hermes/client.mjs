@@ -6,8 +6,16 @@ export class HermesError extends Error {
   constructor(code) { super(code); this.code = code; }
 }
 
+const connectFailures = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'UND_ERR_CONNECT_TIMEOUT']);
+
+function failedToConnect(cause) {
+  if (cause instanceof AggregateError && cause.errors.length) return cause.errors.every(failedToConnect);
+  return connectFailures.has(cause?.code);
+}
+
 export class HermesClient {
   constructor({ baseUrl, apiKey, dataDir, model = 'hermes-agent', timeoutMs = 180000, fetchImpl = fetch }) {
+    if (!URL.canParse(baseUrl)) throw new Error('Invalid HERMES_BASE_URL');
     const url = new URL(baseUrl);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('Invalid HERMES_BASE_URL');
     if (!apiKey?.trim()) throw new Error('HERMES_API_KEY is required');
@@ -19,25 +27,37 @@ export class HermesClient {
   async init() {
     await mkdir(this.dataDir, { recursive: true });
     const file = join(this.dataDir, 'hermes-session.json');
+    let state;
     try {
-      const state = JSON.parse(await readFile(file, 'utf8'));
-      if (!/^[a-f0-9-]{36}$/.test(state.sessionId)) throw new Error('Invalid saved session');
-      if (state.baseUrl !== this.baseUrl) throw new Error('Hermes endpoint changed; archive hermes-session.json before switching backend');
-      this.sessionId = state.sessionId;
+      state = JSON.parse(await readFile(file, 'utf8'));
     } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-      this.sessionId = randomUUID();
-      await writeFile(file + '.tmp', JSON.stringify({ sessionId: this.sessionId, baseUrl: this.baseUrl }), { mode: 0o600 });
-      await rename(file + '.tmp', file);
+      if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+      if (error instanceof SyntaxError) state = null;
     }
+    // The ID is opaque and must be safe to send as an HTTP header.
+    if (typeof state?.sessionId === 'string' && /^[!-~]+$/.test(state.sessionId) && /[a-z0-9]/i.test(state.sessionId)) {
+      this.sessionId = state.sessionId;
+      if (state.baseUrl === this.baseUrl) return;
+      console.info('Hermes 地址已变更，沿用当前音箱会话。');
+    } else {
+      if (state !== undefined) {
+        const backup = 'hermes-session.json.corrupt-' + randomUUID();
+        await rename(file, join(this.dataDir, backup));
+        console.warn('音箱会话文件损坏，已备份为', backup, '并创建新会话。');
+      }
+      this.sessionId = randomUUID();
+    }
+    await writeFile(file + '.tmp', JSON.stringify({ sessionId: this.sessionId, baseUrl: this.baseUrl }), { mode: 0o600 });
+    await rename(file + '.tmp', file);
   }
   async check() {
     const response = await this.fetch(`${this.baseUrl}/models`, {
       headers: { Authorization: `Bearer ${this.apiKey}` }, signal: AbortSignal.timeout(10000), redirect: 'error',
     });
     if (!response.ok) throw new HermesError(`HTTP_${response.status}`);
-    const body = await response.json();
-    if (!Array.isArray(body.data)) throw new HermesError('INVALID_MODELS_RESPONSE');
+    let body;
+    try { body = await response.json(); } catch { throw new HermesError('INVALID_MODELS_RESPONSE'); }
+    if (!Array.isArray(body?.data) || !body.data.every(item => typeof item?.id === 'string')) throw new HermesError('INVALID_MODELS_RESPONSE');
     return body.data.map(item => item.id);
   }
   ask(message) {
@@ -48,7 +68,6 @@ export class HermesClient {
   }
   async send({ text, timestamp }) {
     if (!text?.trim()) throw new HermesError('EMPTY_MESSAGE');
-    if (!this.sessionId) throw new HermesError('NOT_INITIALIZED');
     const id = createHash('sha256').update(JSON.stringify([this.sessionId, timestamp, text])).digest('hex');
     let response;
     try {
@@ -62,11 +81,15 @@ export class HermesClient {
           { role: 'user', content: text },
         ] }),
       });
-    } catch { throw new HermesError('DELIVERY_UNCERTAIN'); }
+    } catch (error) {
+      throw new HermesError(failedToConnect(error.cause) ? 'CONNECTION_FAILED' : 'DELIVERY_UNCERTAIN');
+    }
     // Never auto-retry: a tool may already have run before a timeout or failure.
     if (!response.ok) throw new HermesError(`HTTP_${response.status}`);
     let body;
-    try { body = await response.json(); } catch { throw new HermesError('INVALID_RESPONSE'); }
+    try { body = await response.json(); } catch (error) {
+      throw new HermesError(error instanceof SyntaxError ? 'INVALID_RESPONSE' : 'DELIVERY_UNCERTAIN');
+    }
     const choice = body.choices?.[0];
     if (['error', 'cancelled', 'tool_calls'].includes(choice?.finish_reason)) throw new HermesError('TURN_FAILED');
     const answer = choice?.message?.content;
