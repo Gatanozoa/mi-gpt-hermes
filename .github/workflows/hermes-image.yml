@@ -46,5 +46,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          annotations: |
+            index:org.opencontainers.image.description=让小爱音箱通过 hermes-voice 网络连接已有的 Hermes Agent。mi-gpt 按自定义触发词转发问题并朗读回答，音箱保留独立会话，可按 Hermes 配置与微信共享长期记忆。
           cache-from: type=gha
           cache-to: type=gha,mode=max

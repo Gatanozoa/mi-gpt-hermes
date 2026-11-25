@@ -1,10 +1,10 @@
 services:
   mi-gpt-hermes:
-    image: ${MIGPT_IMAGE:?请设置 GitHub Actions 构建的镜像地址}
+    image: ${MIGPT_IMAGE:-ghcr.io/gatanozoa/mi-gpt-hermes:latest}
     container_name: mi-gpt-hermes
     restart: unless-stopped
-    # 通过 Hermes 容器的网络空间访问其回环接口；容器名需与部署环境一致。
-    network_mode: container:hermes
+    networks:
+      - hermes-voice
     env_file: .env
     volumes:
       - ./data:/data
@@ -15,3 +15,8 @@ services:
       options:
         max-size: 10m
         max-file: '3'
+
+networks:
+  hermes-voice:
+    external: true
+    name: hermes-voice
